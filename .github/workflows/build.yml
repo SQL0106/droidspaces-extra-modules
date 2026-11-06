@@ -1,0 +1,217 @@
+name: build-extra-modules
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Build all modules or only one target"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - macvlan
+          - ip6table_nat
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/workflows/**"
+      - "LICENSE"
+      - ".gitignore"
+
+concurrency:
+  # Keep every run: a failed run must still upload its logs and artifacts.
+  group: build-extra-modules-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  DDK_TAG: android14-6.1-20260313
+  DDK_IMAGE: ghcr.io/ylarod/ddk-min@sha256:1dd6ac340b627a90a4031d6d0df6b129d8cc949b139fb56032c898f023d3d5d3
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show disk and tool versions
+        run: |
+          df -h
+          docker version
+          python3 --version
+          git rev-parse HEAD
+
+      - name: Install report tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq kmod binutils
+
+      - name: Restore DDK image cache
+        id: ddk-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/ddk-image.tar
+          key: ddk-${{ env.DDK_TAG }}-${{ hashFiles('build/targets.json') }}
+          restore-keys: |
+            ddk-${{ env.DDK_TAG }}-
+
+      - name: Load or pull DDK image
+        id: ddk
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          if [ -s /tmp/ddk-image.tar ]; then
+            echo "cache_hit=true" >> "$GITHUB_OUTPUT"
+            echo "=== docker load from cache ===" | tee logs/ddk-image.log
+            docker load -i /tmp/ddk-image.tar 2>&1 | tee -a logs/ddk-image.log
+          else
+            echo "cache_hit=false" >> "$GITHUB_OUTPUT"
+            echo "=== docker pull ===" | tee logs/ddk-image.log
+            docker pull --platform linux/amd64 "$DDK_IMAGE" 2>&1 | tee -a logs/ddk-image.log
+            docker save "$DDK_IMAGE" -o /tmp/ddk-image.tar
+          fi
+
+          docker image inspect "$DDK_IMAGE" \
+            --format 'id={{.Id}} arch={{.Architecture}} size={{.Size}}' \
+            | tee -a logs/ddk-image.log
+
+          bytes=$(stat -c%s /tmp/ddk-image.tar)
+          echo "image_tar_bytes=$bytes" | tee -a logs/ddk-image.log
+          if [ "$bytes" -le 6000000000 ]; then
+            echo "cache_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cache_ok=false" >> "$GITHUB_OUTPUT"
+            echo "WARNING: image tar is larger than 6 GB, skip cache save" | tee -a logs/ddk-image.log
+          fi
+
+      - name: Restore build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .build
+            out
+          key: build-${{ env.DDK_TAG }}-${{ hashFiles('Makefile', 'modules/**', 'scripts/build.sh', 'build/targets.json') }}-${{ github.run_id }}
+          restore-keys: |
+            build-${{ env.DDK_TAG }}-
+
+      - name: Build
+        id: build
+        shell: bash
+        env:
+          TARGETS: ${{ github.event.inputs.targets || 'all' }}
+        run: |
+          set -o pipefail
+          mkdir -p logs
+          if [ "$TARGETS" = "all" ]; then
+            args=""
+          else
+            args="$TARGETS"
+          fi
+          set +e
+          bash scripts/build.sh $args 2>&1 | tee -a logs/workflow-build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "build_rc=$rc" | tee -a logs/workflow-build.log
+          exit "$rc"
+
+      - name: Collect reports and checksums
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          mkdir -p out logs
+          if [ ! -f metadata.json ]; then
+            printf '{"error":"metadata.json was not produced"}\n' > metadata.json
+          fi
+          (cd out && sha256sum *.ko > SHA256SUMS) 2>/dev/null || true
+          {
+            echo "=== files ==="
+            find out logs -type f -printf '%p %s bytes\n' | sort
+            echo "=== ko metadata ==="
+            for f in out/*.ko; do
+              [ -e "$f" ] || continue
+              echo "--- $f"
+              file "$f" || true
+              modinfo "$f" 2>&1 || true
+            done
+          } | tee logs/files.txt
+          df -h
+
+      - name: Upload modules, logs and metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: droidspaces-extra-ko-${{ github.run_id }}
+          path: |
+            out/
+            logs/
+            metadata.json
+            load.sh
+            README.md
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Save DDK image cache
+        if: always() && steps.ddk.outputs.cache_hit != 'true' && steps.ddk.outputs.cache_ok == 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: /tmp/ddk-image.tar
+          key: ddk-${{ env.DDK_TAG }}-${{ hashFiles('build/targets.json') }}
+
+      - name: Save build cache
+        if: always()
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: |
+            .build
+            out
+          key: build-${{ env.DDK_TAG }}-${{ hashFiles('Makefile', 'modules/**', 'scripts/build.sh', 'build/targets.json') }}-${{ github.run_id }}
+
+      - name: Verify build cache saved
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          key='build-${{ env.DDK_TAG }}-${{ hashFiles('Makefile', 'modules/**', 'scripts/build.sh', 'build/targets.json') }}-${{ github.run_id }}'
+          for i in $(seq 1 12); do
+            if gh api "repos/${{ github.repository }}/actions/caches?per_page=100" \
+              --jq '.actions_caches[].key' | grep -Fxq "$key"; then
+              echo "CACHE OK: $key"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "ERROR: build cache was not saved: $key" >&2
+          exit 1
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Droidspaces extra modules"
+            echo ""
+            echo '```'
+            cat logs/build-summary.txt 2>/dev/null || echo "(no build summary)"
+            echo '```'
+            echo ""
+            echo "Artifact: \`droidspaces-extra-ko-${{ github.run_id }}\`"
+            echo ""
+            echo "### KOs"
+            ls -lh out/*.ko 2>/dev/null || echo "none"
+            echo ""
+            echo "### SHA256"
+            cat out/SHA256SUMS 2>/dev/null || echo "none"
+          } >> "$GITHUB_STEP_SUMMARY"

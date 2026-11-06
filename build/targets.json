@@ -1,0 +1,17 @@
+{
+  "kmi": "android14-6.1",
+  "ddk_tag": "android14-6.1-20260313",
+  "image": "ghcr.io/ylarod/ddk-min@sha256:1dd6ac340b627a90a4031d6d0df6b129d8cc949b139fb56032c898f023d3d5d3",
+  "targets": {
+    "macvlan": {
+      "module": "macvlan.ko",
+      "source": "modules/macvlan/macvlan.c",
+      "upstream": "drivers/net/macvlan.c"
+    },
+    "ip6table_nat": {
+      "module": "ip6table_nat.ko",
+      "source": "modules/ip6table_nat/ip6table_nat.c",
+      "upstream": "net/ipv6/netfilter/ip6table_nat.c"
+    }
+  }
+}

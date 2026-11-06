@@ -1,0 +1,8 @@
+Upstream: https://github.com/aosp-mirror/kernel_common
+Branch: android14-6.1
+Commit: 498f91c17b0822a09aede17d26a63bf8c6813725
+Path: drivers/net/macvlan.c
+License: GPL-2.0-or-later (see file header)
+
+Local changes: none. The source is copied verbatim; the Makefile defines
+CONFIG_MACVLAN_MODULE=1 for this out-of-tree build.

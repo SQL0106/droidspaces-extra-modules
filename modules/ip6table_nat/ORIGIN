@@ -1,0 +1,8 @@
+Upstream: https://github.com/aosp-mirror/kernel_common
+Branch: android14-6.1
+Commit: 498f91c17b0822a09aede17d26a63bf8c6813725
+Path: net/ipv6/netfilter/ip6table_nat.c
+License: GPL-2.0-only (see file header)
+
+Local changes: none. The source is copied verbatim. This file is normally only
+built when CONFIG_IP6_NF_NAT=y; the target GKI kernel leaves that config off.
