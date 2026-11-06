@@ -1,0 +1,6 @@
+id=droidspaces_extra
+name=Droidspaces extra modules
+version=v1.0.0
+versionCode=1
+author=SQL0106
+description=Loads macvlan and legacy ip6table_nat for Droidspaces (android14-6.1).

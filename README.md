@@ -73,8 +73,27 @@ ksud rmmod macvlan
 ksud rmmod ip6table_nat
 ```
 
-开机自加载可以放进 KernelSU 模块的 `post-fs-data.sh`，但建议先手动加载并重启验证，
-确认不会崩内核后再持久化。
+## 开机自动加载（KernelSU）
+
+`out/droidspaces_extra-ksu.zip` 是 KernelSU 模块包，包含两个 `.ko` 和 `service.sh`。
+在 KernelSU 管理器中安装后重启即可；也可命令行安装：
+
+```sh
+ksud module install /data/local/tmp/droidspaces_extra-ksu.zip
+```
+
+`service.sh` 在 late_start 阶段用 `ksud insmod` 加载；如果 `/proc/modules`
+里已经有同名模块就跳过，避免重复加载报错。
+
+## 实测结果（realme RMX5062，2026-11-07）
+
+- `/data/adb/ksud insmod` 加载两个模块均 `rc=0`，`/proc/modules` 可见。
+- `ip6tables -t nat -L -n` 正常列出四条链。
+- `ip link add link wlan0 name mvtest0 type macvlan mode bridge` 和 `ip link del` 均 `rc=0`。
+- `droidspaces check`：`Macvlan support` ✓、`IPv6 NAT support` ✓；
+  仍为 ✗ 的是 `devtmpfs`、`CPU limit`、`Process limit`、`user namespaces`。
+- 已安装 KSU 模块 `/data/adb/modules/droidspaces_extra`；重启后的自动加载尚未验证
+  （没有擅自重启设备）。
 
 ## 注意
 

@@ -67,6 +67,14 @@ for t in $TARGETS; do
   fi
 done
 
+# Package the KernelSU flashable zip when both modules built.
+if [ -f out/macvlan.ko ] && [ -f out/ip6table_nat.ko ]; then
+  if ! python3 scripts/pack_ksu.py | tee -a logs/build-summary.txt; then
+    echo "KSU packaging FAILED" | tee -a logs/build-summary.txt
+    status=1
+  fi
+fi
+
 # Metadata is written even when a target failed.
 python3 - "$ROOT" "$KMI" "$IMAGE" <<'PY'
 import hashlib
