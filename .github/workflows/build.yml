@@ -73,15 +73,24 @@ jobs:
           if [ -s /tmp/ddk-image.tar ]; then
             echo "cache_hit=true" >> "$GITHUB_OUTPUT"
             echo "=== docker load from cache ===" | tee logs/ddk-image.log
-            docker load -i /tmp/ddk-image.tar 2>&1 | tee -a logs/ddk-image.log
+            load_log=$(docker load -i /tmp/ddk-image.tar 2>&1)
+            echo "$load_log" | tee -a logs/ddk-image.log
+            loaded=$(echo "$load_log" | sed -n 's/^Loaded image: //p' | tail -1)
+            if [ -z "$loaded" ]; then
+              loaded=$(echo "$load_log" | sed -n 's/^Loaded image ID: //p' | tail -1)
+            fi
+            [ -n "$loaded" ]
+            docker tag "$loaded" ddk-min:local
           else
             echo "cache_hit=false" >> "$GITHUB_OUTPUT"
             echo "=== docker pull ===" | tee logs/ddk-image.log
             docker pull --platform linux/amd64 "$DDK_IMAGE" 2>&1 | tee -a logs/ddk-image.log
-            docker save "$DDK_IMAGE" -o /tmp/ddk-image.tar
+            docker tag "$DDK_IMAGE" ddk-min:local
+            # Save with the local tag so docker load always has a RepoTag.
+            docker save ddk-min:local -o /tmp/ddk-image.tar
           fi
 
-          docker image inspect "$DDK_IMAGE" \
+          docker image inspect ddk-min:local \
             --format 'id={{.Id}} arch={{.Architecture}} size={{.Size}}' \
             | tee -a logs/ddk-image.log
 
@@ -109,6 +118,7 @@ jobs:
         shell: bash
         env:
           TARGETS: ${{ github.event.inputs.targets || 'all' }}
+          DDK_IMAGE: ddk-min:local
         run: |
           set -o pipefail
           mkdir -p logs
