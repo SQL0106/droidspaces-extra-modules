@@ -18,7 +18,7 @@ os.makedirs(OUT, exist_ok=True)
 zip_path = os.path.join(OUT, NAME + "-ksu.zip")
 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
     for f in ("module.prop", "service.sh"):
-        z.write(os.path.join(SRC, f), f"{NAME}/{f}")
+        z.write(os.path.join(SRC, f), f)
     for p in ko:
-        z.write(p, f"{NAME}/{os.path.basename(p)}")
+        z.write(p, os.path.basename(p))
 print(zip_path)
